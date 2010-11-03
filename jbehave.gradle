@@ -1,0 +1,23 @@
+configurations {
+    jbehave
+}
+
+dependencies {
+    jbehave group: 'org.jbehave', name: 'jbehave-ant', version: '3.0.3'
+}
+
+repositories {
+    mavenCentral()
+}
+
+task spec << {
+    ant.taskdef(
+        name: 'jbehave',
+        classname: 'org.jbehave.ant.RunStoriesAsEmbeddables',
+        classpath: configurations.jbehave.asPath)
+   
+    ant.jbehave(
+        includes: 'src/test/specs',
+       
+        generateViewAfterStories: true)
+}
