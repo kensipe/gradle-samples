@@ -5,6 +5,11 @@ import org.gradle.api.internal.tasks.CommandLineOption;
 import org.gradle.api.tasks.diagnostics.internal.*;
 import org.gradle.util.GUtil;
 
+// to-dos:
+// 1. create a real model (currently using "tasks report" model just to get the idea working)
+// 2. create a report writer
+// 3. either added to the core... or create a plugin that can be applied (if it remains in this file... rename file)
+// 4. make it so the dotreport will work with a dependency model as well as a task dag
 apply plugin: 'java'
 
 6.times {
