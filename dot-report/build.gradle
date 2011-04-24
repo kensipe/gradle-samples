@@ -1,0 +1,70 @@
+import org.gradle.api.Project;
+import org.gradle.api.Rule;
+import org.gradle.api.internal.project.ProjectInternal;
+import org.gradle.api.internal.tasks.CommandLineOption;
+import org.gradle.api.tasks.diagnostics.internal.*;
+import org.gradle.util.GUtil;
+
+apply plugin: 'java'
+
+6.times {
+	task "task${it}" << {
+		println "${it}"
+	}
+}
+
+task0.dependsOn task3
+task0.dependsOn task2
+
+task1.dependsOn task2
+task2.dependsOn task3
+
+task4.dependsOn task0
+
+task0.dependsOn task5
+task3.dependsOn task5	
+
+
+task report(type: DOTReport) {
+	reportFile = file("$buildDir/task-dag.gv")
+}
+
+class DOTReport extends DefaultTask {
+
+    @OutputFile
+    File reportFile
+
+	@InputFile
+	File gradleFile = new File("${project.buildFile}")
+
+    @TaskAction
+    void generate() {
+			
+
+		AggregateMultiProjectTaskReportModel aggregateModel = new AggregateMultiProjectTaskReportModel(true);
+		TaskDetailsFactory taskDetailsFactory = new TaskDetailsFactory(project);
+
+		SingleProjectTaskReportModel projectTaskModel = new SingleProjectTaskReportModel(taskDetailsFactory);
+		ProjectInternal projectInternal = (ProjectInternal) project;
+		projectTaskModel.build(GUtil.addSets(projectInternal.getTasks()));
+		aggregateModel.add(projectTaskModel);
+		SingleProjectTaskReportModel subprojectTaskModel = new SingleProjectTaskReportModel(taskDetailsFactory);
+		aggregateModel.build();
+
+		DefaultGroupTaskReportModel model = new DefaultGroupTaskReportModel();
+		model.build(aggregateModel);
+
+		reportFile.withPrintWriter { writer -> 
+			writer.write "digraph graphname {"
+			for (String group : model.getGroups()) {
+				for (TaskDetails task : model.getTasksForGroup(group)) {
+					writer.write "\n${task.path} "
+			    	for (TaskDetails child : task.getChildren()) {
+						writer.write " -> ${child.path} "
+			    	}
+			 	}
+			}
+			writer.write "\n}\n"
+		}		
+    }
+}
