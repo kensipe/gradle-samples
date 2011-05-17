@@ -4,7 +4,7 @@ import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.internal.tasks.CommandLineOption;
 import org.gradle.api.tasks.diagnostics.internal.*;
 import org.gradle.util.GUtil;
-import org.gradle.api.internal.file.PathResolvingFileCollection
+import org.gradle.api.internal.file.UnionFileCollection
 import org.gradle.util.Path
 import org.gradle.logging.StyledTextOutput;
 
@@ -58,7 +58,8 @@ task taskDag << {
 	println "digraph dag {"
 	project.getTasks().each { task ->
 		task.taskDependencies.values.each{ depends ->
-			if(!(depends instanceof PathResolvingFileCollection) ){
+			
+			if(!(depends instanceof UnionFileCollection) ){
 /*				println "  ${task.path} -> ${depends.class.name}"*/
 				
 				//todo: look at different  -> for different types
