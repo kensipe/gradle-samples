@@ -7,6 +7,7 @@ generates the DOT notation for a task dag... so add plugins and tasks all you wa
 sample output:
 gradle tD
 :taskDag
+<pre>
 <code>
 digraph dag {
   assemble -> jar
@@ -29,6 +30,7 @@ digraph dag {
   testClasses -> compileTestJava
 }
 </code>
+</pre>
 copy all details from the digraph to the closing } and save in a file with the "gv" extension.
 
 #depGraph 
@@ -36,6 +38,7 @@ generates the DOT notation for a dependency graph...
 
 sample output:
 <code>
+<pre>
 digraph dependencies { 
   org_springframework_spring_beans_3_0_5_RELEASE -> commons_logging_commons_logging_1_1_1
   org_springframework_spring_webmvc_3_0_5_RELEASE -> org_springframework_spring_beans_3_0_5_RELEASE
@@ -62,3 +65,4 @@ digraph dependencies {
   org_springframework_spring_webmvc_3_0_5_RELEASE -> org_springframework_spring_context_3_0_5_RELEASE
 }
 </code>
+</pre>
