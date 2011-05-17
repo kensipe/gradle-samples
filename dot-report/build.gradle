@@ -4,12 +4,15 @@ import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.internal.tasks.CommandLineOption;
 import org.gradle.api.tasks.diagnostics.internal.*;
 import org.gradle.util.GUtil;
+import org.gradle.api.internal.file.PathResolvingFileCollection
+import org.gradle.util.Path
+import org.gradle.logging.StyledTextOutput;
 
-// to-dos:
-// 1. create a real model (currently using "tasks report" model just to get the idea working)
-// 2. create a report writer
-// 3. either added to the core... or create a plugin that can be applied (if it remains in this file... rename file)
-// 4. make it so the dotreport will work with a dependency model as well as a task dag
+import static org.gradle.logging.StyledTextOutput.Style.*;
+import org.gradle.api.Action;
+
+
+
 apply plugin: 'java'
 
 6.times {
@@ -29,9 +32,81 @@ task4.dependsOn task0
 task0.dependsOn task5
 task3.dependsOn task5	
 
+classes.dependsOn task5
+
+repositories {
+	mavenCentral()
+	mavenRepo urls: 'http://maven.springframework.org/milestone'	
+}
+
+dependencies {
+	compile 'org.springframework:spring-webmvc:3.0.5.RELEASE'
+	
+	testCompile 'org.springframework:spring-test:3.0.5.RELEASE'
+	testCompile 'junit:junit:4.8.2'
+}
+
+task taskDag << {
+	
+	
+	/// Model build up and and rendered... probably use sets again
+	/// requirements for task dag
+	/// 1. stdio or file?
+	/// 2. any other controls?
+	/// 3. gradle tasks --dot ? some other control
+	/// 4. working in a multi-project env
+	println "digraph dag {"
+	project.getTasks().each { task ->
+		task.taskDependencies.values.each{ depends ->
+			if(!(depends instanceof PathResolvingFileCollection) ){
+/*				println "  ${task.path} -> ${depends.class.name}"*/
+				
+				//todo: look at different  -> for different types
+				if(depends instanceof java.lang.String) {
+					println "  ${prefixCheck(task.path)} -> ${prefixCheck(depends)}"
+				} else if( depends instanceof org.gradle.api.DefaultTask) {
+					println "  ${prefixCheck(task.path)} -> ${prefixCheck(depends.path)}"
+				} else if( depends instanceof org.gradle.api.artifacts.Configuration) {					
+					println "  ${prefixCheck(task.path)} -> ${prefixCheck(depends.name)}"
+				} else if ( depends instanceof TaskCollection<T>) {
+					depends.all{
+						println "  ${prefixCheck(task.path)} -> ${prefixCheck(it.path)}"
+					}
+					
+				}
+				
+				
+				
+/*				else if(depends instanceof )*/
+/*				else if(depends instanceof org.gradle.api.internal.tasks.DefaultTaskCollection) {
+					println "  ${task.path} -> ${depends}"					
+				}
+				else if(depends instanceof org.gradle.api.internal.artifacts.configurations.DefaultConfiguration) {
+					println "  ${task.path} -> ${depends}"										
+				}
+				else {
+					println  "  ${task.path} -> ${depends.path}"
+				}
+*/			}
+		}
+	}
+	println "}"	
+	
+}
+
+def String prefixCheck(String s) {
+	if(s.startsWith(":")) {
+		return s.substring(1)
+	}
+	return s
+}
 
 task report(type: DOTReport) {
 	reportFile = file("$buildDir/task-dag.gv")
+}
+
+task deps(type: DependencyReportTask) {
+	renderer = new VizReportRenderer()
 }
 
 class DOTReport extends DefaultTask {
@@ -56,13 +131,13 @@ class DOTReport extends DefaultTask {
 		SingleProjectTaskReportModel subprojectTaskModel = new SingleProjectTaskReportModel(taskDetailsFactory);
 		aggregateModel.build();
 
-		DefaultGroupTaskReportModel model = new DefaultGroupTaskReportModel();
+/*		DefaultGroupTaskReportModel model = new DefaultGroupTaskReportModel();
 		model.build(aggregateModel);
-
+*/
 		reportFile.withPrintWriter { writer -> 
 			writer.write "digraph graphname {"
-			for (String group : model.getGroups()) {
-				for (TaskDetails task : model.getTasksForGroup(group)) {
+			for (String group : projectTaskModel.getGroups()) {
+				for (TaskDetails task : projectTaskModel.getTasksForGroup(group)) {
 					writer.write "\n${task.path} "
 			    	for (TaskDetails child : task.getChildren()) {
 						writer.write " -> ${child.path} "
@@ -73,3 +148,444 @@ class DOTReport extends DefaultTask {
 		}		
     }
 }
+
+
+class VizReportRenderer extends TextReportRenderer implements DependencyReportRenderer {
+	
+	String configName
+	
+    @Override
+    public void startProject(Project project) {
+        // Do nothing
+    }
+
+    public void startConfiguration(Configuration configuration) {
+		
+		configName = configuration.name
+		getTextOutput().println("digraph $configName{");
+        // Do nothing
+    }
+
+    public void completeConfiguration(Configuration configuration) {
+        // Do nothing
+    }
+
+    public void render(ResolvedConfiguration resolvedConfiguration) throws IOException {
+
+
+        Set<String> edges = new HashSet<String>();
+
+        for (ResolvedDependency resolvedDependency : resolvedConfiguration.getFirstLevelModuleDependencies()) {
+			println "res $resolvedDependency.configuration"
+			println "res2 $resolvedDependency	"
+			println "conf $configName"
+			if(resolvedDependency.configuration == configName) {
+            	buildDotDependencyTree(resolvedDependency, edges);
+			}
+        }
+
+        for (String edge : edges) {
+            getTextOutput().println(edge);
+        }
+
+        getTextOutput().println("}");
+    }
+
+    private void buildDotDependencyTree(ResolvedDependency root, Set<String> edges) {
+        if (root.getAllModuleArtifacts().isEmpty()) {
+            return;
+        }
+        for (ResolvedDependency dep : root.getChildren()) {
+            String edge = "\"" + root.toString() + "\" -> \"" + dep.toString().replace('-', '_') + "\";";
+            edges.add(edge);
+        }
+
+        for (ResolvedDependency dep : root.getChildren()) {
+            buildDotDependencyTree(dep, edges);
+        }
+    }
+}
+
+task depDot(type: DependencyDOTTask) << {
+	
+}
+
+task depGraph << {
+	
+	// previous graphs were based on ascii graph... which is completely inappropriate.  The ascii graph has redundency you wouldn't want
+	// represented in the DOT model
+	// requirements
+	// 1. stdio or file?
+	// 2. switch for gradle properties dot ?
+	// 3. control of which configuration (runtime vs. compile)
+	// 4. multi-project env ???
+	
+	/// refactor to model //////////////////////
+	def dependSet = [] as Set
+	def configs = project.getConfigurations().getAll()
+	
+	// all dependencies... not just a config
+	configs.each { config ->
+				
+			def depends = mergeChildren(config.getResolvedConfiguration().getFirstLevelModuleDependencies())
+			
+			harvestChildren(dependSet, depends, null)
+			
+/*			if (!depends.isEmpty()) {
+				harvestChildren(dependSet, depends, null)
+			} else {
+				print depends
+			}
+*/		}
+	
+	//////// refactor to render /////////////////
+	println "digraph dependencies { "
+	dependSet.each {
+		println "  $it"
+	}
+	println "}"
+	
+	
+}
+
+def Set harvestChildren(Set dependSet, def depends, String parent) {
+	
+	depends.eachWithIndex { depend, i ->
+		
+/*		println "    $depend.name has ${depend.children.size()} children parent is $parent"*/
+		
+		if(!parent) 	{
+			parent = "project_$project.name"
+			parent = stripIllegalDOTChars(parent)
+			dependSet << "$parent -> ${stripIllegalDOTChars(depend.name)}"	
+		} 		
+		if(depend.children.size() == 0) {
+			if(!parent) 	{
+				parent = "project_$project.name"
+			} 
+			parent = stripIllegalDOTChars(parent)
+			dependSet << "$parent -> ${stripIllegalDOTChars(depend.name)}"	
+	
+		} else {
+			depend.children.each { child ->
+				harvestChildren(dependSet,child.children,depend.name)
+			}
+		}
+		
+	}
+	return dependSet
+}
+
+def String stripIllegalDOTChars(String value) {
+	
+	def illegal = ['.',':','-']
+	illegal.each { illegalChar ->
+		value = value.replace(illegalChar,'_')
+	}
+	return value
+}
+
+
+
+static class MergedResolvedDependency {
+    private Set<ResolvedDependency> mergedResolvedDependencies = new LinkedHashSet<ResolvedDependency>();
+
+    public MergedResolvedDependency(Set<ResolvedDependency> mergedResolvedDependencies) {
+        assert !mergedResolvedDependencies.isEmpty();
+        this.mergedResolvedDependencies = mergedResolvedDependencies;
+    }
+
+    public String getName() {
+        return mergedResolvedDependencies.iterator().next().getName();
+    }
+
+    public String getConfiguration() {
+        String mergedConfiguration = "";
+        for (ResolvedDependency mergedResolvedDependency : mergedResolvedDependencies) {
+            mergedConfiguration += mergedResolvedDependency.getConfiguration() + ",";
+        }
+        return mergedConfiguration.substring(0, mergedConfiguration.length() - 1);
+    }
+
+    public Set<ResolvedDependency> getChildren() {
+        Set<ResolvedDependency> mergedChildren = new LinkedHashSet<ResolvedDependency>();
+        for (ResolvedDependency mergedResolvedDependency : mergedResolvedDependencies) {
+            mergedChildren.addAll(mergedResolvedDependency.getChildren());
+        }
+        return mergedChildren;
+    }
+}
+
+
+def Set<MergedResolvedDependency> mergeChildren(Set<ResolvedDependency> children) {
+    Map<String, Set<ResolvedDependency>> mergedGroups = new LinkedHashMap<String, Set<ResolvedDependency>>();
+    for (ResolvedDependency child : children) {
+        Set<ResolvedDependency> mergeGroup = mergedGroups.get(child.getName());
+        if (mergeGroup == null) {
+            mergedGroups.put(child.getName(), mergeGroup = new LinkedHashSet<ResolvedDependency>());
+        }
+        mergeGroup.add(child);
+    }
+    Set<MergedResolvedDependency> mergedChildren = new LinkedHashSet<MergedResolvedDependency>();
+    for (Set<ResolvedDependency> mergedGroup : mergedGroups.values()) {
+        mergedChildren.add(new MergedResolvedDependency(mergedGroup));
+    }
+    return mergedChildren;
+}
+
+
+
+
+
+// working... probably need to remove the .'s or the :'s... probably is the dependencies are too much... looks good on an ascii diagram... not here
+/** Start of new ascii reporter for viz **********************/
+class DependencyDOTTask extends AbstractReportTask {
+
+    private DependencyReportRenderer renderer = new ADOTReportRenderer();
+
+    private Set<Configuration> configurations;
+
+    public ReportRenderer getRenderer() {
+        return renderer;
+    }
+
+    /**
+     * Set the renderer to use to build a report. If unset, AsciiGraphRenderer will be used.
+     */
+    public void setRenderer(DependencyReportRenderer renderer) {
+        this.renderer = renderer;
+    }
+
+    public void generate(Project project) throws IOException {
+        SortedSet<Configuration> sortedConfigurations = new TreeSet<Configuration>(new Comparator<Configuration>() {
+            public int compare(Configuration conf1, Configuration conf2) {
+                return conf1.getName().compareTo(conf2.getName());
+            }
+        });
+        sortedConfigurations.addAll(getConfigurations(project));
+        for (Configuration configuration : sortedConfigurations) {
+            renderer.startConfiguration(configuration);
+            renderer.render(configuration.getResolvedConfiguration());
+            renderer.completeConfiguration(configuration);
+        }
+    }
+
+    private Set<Configuration> getConfigurations(Project project) {
+        return configurations != null ? configurations : project.getConfigurations().getAll();
+    }
+
+    /**
+     * Returns the configurations to generate the report for. Default to all configurations of this task's containing
+     * project.
+     *
+     * @return the configurations.
+     */
+    public Set<Configuration> getConfigurations() {
+        return configurations;
+    }
+
+    /**
+     * Sets the configurations to generate the report for.
+     *
+     * @param configurations The configuration. Must not be null.
+     */
+    public void setConfigurations(Set<Configuration> configurations) {
+        this.configurations = configurations;
+    }
+}
+
+
+public class ADOTReportRenderer extends TextReportRenderer implements DependencyReportRenderer {
+    private boolean hasConfigs;
+    private DOTGraphRenderer renderer;
+
+    @Override
+    public void startProject(Project project) {
+        super.startProject(project);
+        hasConfigs = false;
+    }
+
+    @Override
+    public void completeProject(Project project) {
+        if (!hasConfigs) {
+            getTextOutput().withStyle(Info).println("No configurations");
+        }
+        super.completeProject(project);
+    }
+
+    public void startConfiguration(final Configuration configuration) {
+        if (hasConfigs) {
+            getTextOutput().println();
+        }
+        hasConfigs = true;
+        renderer = new DOTGraphRenderer(getTextOutput());
+        renderer.visit(new StyledTextOutputAction(configuration), true);
+    }
+
+    private String getDescription(Configuration configuration) {
+        return GUtil.isTrue(configuration.getDescription()) ? " - " + configuration.getDescription() : "";
+    }
+
+    public void completeConfiguration(Configuration configuration) {
+		println " }"
+    }
+
+    public void render(ResolvedConfiguration resolvedConfiguration) throws IOException {
+        Set<MergedResolvedDependency> mergedRoots = mergeChildren(resolvedConfiguration.getFirstLevelModuleDependencies());
+        if (mergedRoots.isEmpty()) {
+            getTextOutput().withStyle(Info).text("No dependencies");
+            getTextOutput().println();
+            return;
+        }
+        renderChildren(null, mergedRoots);
+    }
+
+    private void render(MergedResolvedDependency parent, final MergedResolvedDependency resolvedDependency, boolean lastChild) {
+        renderer.visit(new DependStyledTextOutputAction(parent, resolvedDependency), lastChild); //todo: pass parent for rendering
+        renderChildren(resolvedDependency, mergeChildren(resolvedDependency.getChildren()));
+    }
+
+    private void renderChildren(MergedResolvedDependency parent, Set<MergedResolvedDependency> children) {
+        renderer.startChildren();
+        List<MergedResolvedDependency> mergedChildren = new ArrayList<MergedResolvedDependency>(children);
+        for (int i = 0; i < mergedChildren.size(); i++) {
+            MergedResolvedDependency dependency = mergedChildren.get(i);
+            render(parent, dependency, i == mergedChildren.size() - 1);
+        }
+        renderer.completeChildren();
+    }
+
+    private Set<MergedResolvedDependency> mergeChildren(Set<ResolvedDependency> children) {
+        Map<String, Set<ResolvedDependency>> mergedGroups = new LinkedHashMap<String, Set<ResolvedDependency>>();
+        for (ResolvedDependency child : children) {
+            Set<ResolvedDependency> mergeGroup = mergedGroups.get(child.getName());
+            if (mergeGroup == null) {
+                mergedGroups.put(child.getName(), mergeGroup = new LinkedHashSet<ResolvedDependency>());
+            }
+            mergeGroup.add(child);
+        }
+        Set<MergedResolvedDependency> mergedChildren = new LinkedHashSet<MergedResolvedDependency>();
+        for (Set<ResolvedDependency> mergedGroup : mergedGroups.values()) {
+            mergedChildren.add(new MergedResolvedDependency(mergedGroup));
+        }
+        return mergedChildren;
+    }
+
+    private static class MergedResolvedDependency {
+        private Set<ResolvedDependency> mergedResolvedDependencies = new LinkedHashSet<ResolvedDependency>();
+
+        public MergedResolvedDependency(Set<ResolvedDependency> mergedResolvedDependencies) {
+            assert !mergedResolvedDependencies.isEmpty();
+            this.mergedResolvedDependencies = mergedResolvedDependencies;
+        }
+
+        public String getName() {
+            return mergedResolvedDependencies.iterator().next().getName();
+        }
+
+        public String getConfiguration() {
+            String mergedConfiguration = "";
+            for (ResolvedDependency mergedResolvedDependency : mergedResolvedDependencies) {
+                mergedConfiguration += mergedResolvedDependency.getConfiguration() + ",";
+            }
+            return mergedConfiguration.substring(0, mergedConfiguration.length() - 1);
+        }
+
+        public Set<ResolvedDependency> getChildren() {
+            Set<ResolvedDependency> mergedChildren = new LinkedHashSet<ResolvedDependency>();
+            for (ResolvedDependency mergedResolvedDependency : mergedResolvedDependencies) {
+                mergedChildren.addAll(mergedResolvedDependency.getChildren());
+            }
+            return mergedChildren;
+        }
+    }
+
+    private class StyledTextOutputAction implements Action<StyledTextOutput> {
+        private final Configuration configuration;
+
+        public StyledTextOutputAction(Configuration configuration) {
+            this.configuration = configuration;
+        }
+
+        public void execute(StyledTextOutput styledTextOutput) {
+            getTextOutput().withStyle(Identifier).text("diagram " + configuration.getName() +" {");
+/*            getTextOutput().withStyle(Description).text(getDescription(configuration));*/
+        }
+    }
+
+    private class DependStyledTextOutputAction implements Action<StyledTextOutput> {
+        private final MergedResolvedDependency resolvedDependency;
+        private final MergedResolvedDependency parent;
+
+        public DependStyledTextOutputAction(MergedResolvedDependency parent, MergedResolvedDependency resolvedDependency) {
+            this.resolvedDependency = resolvedDependency;
+			this.parent = parent
+        }
+
+        public void execute(StyledTextOutput styledTextOutput) {
+			if(parent == null) {
+	            getTextOutput().text(resolvedDependency.getName());				
+/*	            getTextOutput().withStyle(Info).format(" [%s]", resolvedDependency.getConfiguration());*/
+			} else {
+            	getTextOutput().text(parent.getName() + " -> " + resolvedDependency.getName());
+/*	            getTextOutput().withStyle(Info).format(" [%s]", resolvedDependency.getConfiguration());*/
+			}
+        }
+    }
+}
+
+ class DOTGraphRenderer {
+    private StyledTextOutput output;
+    private StringBuilder prefix = new StringBuilder();
+    private boolean seenRootChildren;
+    private boolean lastChild = true;
+
+    public DOTGraphRenderer(StyledTextOutput output) {
+        this.output = output;
+    }
+
+    /**
+     * Visits a node in the graph.
+     */
+    public void visit(Action<? super StyledTextOutput> node, boolean lastChild	) {
+        if (seenRootChildren) {
+	          	output.withStyle(Info).text(prefix + (lastChild ? "      " : "    "));
+        }
+        this.lastChild = lastChild;
+        node.execute(output);
+        output.println();
+    }
+
+    public void visit(Action<? super StyledTextOutput> parent, Action<? super StyledTextOutput> node, boolean lastChild	) {
+        if (seenRootChildren) {
+	          	output.withStyle(Info).text(prefix + (lastChild ? "      " : "    "));
+        }
+        this.lastChild = lastChild;
+        node.execute(output);
+        output.println();
+    }
+
+
+    /**
+     * Starts visiting the children of the most recently visited node.
+     */
+    public void startChildren() {
+        if (seenRootChildren) {
+            prefix.append(lastChild ? "     " : "     ");
+        }
+        seenRootChildren = true;
+    }
+
+    /**
+     * Completes visiting the children of the node which most recently started visiting children.
+     */
+    public void completeChildren() {
+        if (prefix.length() == 0) {
+            seenRootChildren = false;
+        } else {
+            prefix.setLength(prefix.length() - 5);
+        }
+    }
+}
+
+
