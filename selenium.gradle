@@ -24,8 +24,10 @@ dependencies {
 tasks.withType(Test) {
     // run tests with -info or -debug option to get logging
     jvmArgs '-Xms128m', '-Xmx1024m', '-XX:MaxPermSize=128m'    
-    systemProperties['hubIP'] = '127.0.0.1'
-    systemProperties['hubPort'] = '4444'
+    systemProperties['gridHubIP'] = '127.0.0.1'
+    systemProperties['gridHubPort'] = '4444'
+    //systemProperties['gridHubIP'] = 'username:b3ef5f1d-91e8-422d-b897-9112606e21f8@ondemand.saucelabs.com'
+    //systemProperties['gridHubPort'] = '80'
     systemProperties['testURL'] = 'http://www.mytestsite.uu/'
     systemProperties['windowXPosition'] = '40'
     systemProperties['windowYPosition'] = '40'
